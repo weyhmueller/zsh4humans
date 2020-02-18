@@ -64,3 +64,14 @@ z4h purge  # delete modules not listed in pull (after instant prompt)
 z4h reset  # can be called manually to wipe $Z4H_DIR
 
   exec -- $Z4H_ZSH -c "command rm -rf -- ${(q)Z4H_DIR}; exec -- ${(q)Z4H_ZSH}"
+
+----
+
+z4h require git https://github.com/zsh4humans/formulae.git
+fpath+=($Z4H_DIR/modules/zsh4humans/formulae)
+
+z4h require oh-my-zsh plugins/z
+z4h require fzf
+
+z4h install git https://..
+
