@@ -1,0 +1,66 @@
+z4h-module-install-'https://github.com/junegunn/fzf.git'() {
+  z4h-module-install-'*' "$@" || return
+  if [[ ! -e $Z4H_MODULE_DIR/bin/fzf ]]; then
+    >&2 $Z4H_MODULE_DIR/install --bin || return
+  fi
+  if [[ ! -e $Z4H_DIR/bin/fzf ]]; then
+    zf_ln -s -- $Z4H_MODULE_DIR/bin/fzf $Z4H_DIR/bin/fzf || return
+  fi
+}
+
+z4h-module-update-'https://github.com/junegunn/fzf.git'() {
+  z4h-module-update-'*' "$@" && >&2 $Z4H_MODULE_DIR/install --bin
+}
+
+z4h-module-uninstall-'https://github.com/junegunn/fzf.git'() {
+  zf_rm -f -- $Z4H_DIR/bin/fzf $Z4H_MODULE_DIR/bin/fzf && z4h-module-uninstall-'*' "$@"
+}
+
+z4h-module-install-'*'() {
+  [[ -d $Z4H_MODULE_DIR ]] && return
+  >&2 git clone --depth=1 --recurse-submodules -j 8 -- $1 $Z4H_MODULE_DIR
+}
+
+z4h-module-update-'*'() {
+  >&2 git -C $Z4H_MODULE_DIR pull --recurse-submodules -j 8
+}
+
+z4h-module-uninstall-'*'() {
+  zf_rm -rf -- $Z4H_MODULE_DIR
+}
+
+####################
+
+emulate zsh
+
+: ${Z4H_ZSH:=${${0#-}:-zsh}}                          # command to start zsh (usually `zsh`)
+: ${Z4H_DIR:=${XDG_CACHE_HOME:-~/.cache}/zsh4humans}  # cache directory
+: ${Z4H_UPDATE_DAYS=13}                               # auto-update this often
+
+if [[ ! -s $Z4H_DIR/zsh4humans/core/init.zsh ]]; then
+  print -ru2 -- ${(%):-"%F{3}z4h%f: installing %Bzsh4humans/core%b"}
+  rm -rf $Z4H_DIR/zsh4humans/core
+  git clone --depth=1 --recurse-submodules --shallow-submodules --jobs=8 \
+    https://github.com/zh4humans/core.git $Z4H_DIR/zsh4humans/core >&2
+  if (( $? )); then
+    print -ru2 -- ${(%):-"%F{3}z4h%f: %F{1}error%f: type %F{2}%Uexec%u zsh%f to retry"}
+    return 1
+  fi
+fi
+
+source $Z4H_DIR/zsh4humans/core/init.zsh || return
+
+z4h pull https://github.com/zsh4humans/formulas.git
+z4h source $Z4H_DIR/modules/zsh4humans/formulas/formulas.zsh
+
+# how to avoid issues when you update and pick up a more specific formula that breaks you because
+# you relied on the non-specific one?
+
+z4h pull https://github.com/junegunn/fzf.git
+z4h pull https://github.com/zsh4humans/cd.git
+
+z4h purge  # delete modules not listed in pull (after instant prompt)
+
+z4h reset  # can be called manually to wipe $Z4H_DIR
+
+  exec -- $Z4H_ZSH -c "command rm -rf -- ${(q)Z4H_DIR}; exec -- ${(q)Z4H_ZSH}"
