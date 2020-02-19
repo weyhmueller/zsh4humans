@@ -44,6 +44,22 @@ z4h:formula:fzf:uninstall() {
   z4h:formula:git:uninstall "$@" https://github.com/junegunn/fzf.git || return
 }
 
+z4h:formula:formulae:autoload() {
+  emulate -L zsh -o extended_glob
+  if [[ $1 == -- ]]; then
+    shift
+  elif [[ $1 == -* ]]; then
+    print -ru2 -- "zsh4humans/formulae: unrecognized flag: $1"
+    return 1
+  fi
+  set -- $*
+  (( ARGC == 0 )) && return
+  local dirs=($Z4H_MOD_DIR/formulae/${~${(j:|:)*}}(/N))
+  (( $#dirs == 0 )) && return
+  fpath+=($dirs)
+  autoload -Uz -- $dirs/[^_]*(.:t)
+}
+
 ####################
 
 emulate zsh
@@ -69,34 +85,36 @@ fi
 
 source $Z4H_DIR/bootstrap/bootstrap.zsh || return
 
-z4h require git -v '^1.0.0' https://github.com/zsh4humans/formulae.git
-z4h source $Z4H_DIR/modules/zsh4humans/formulae/formulae.zsh
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/formulae '*'
 
-z4h require git -v '^1.0.0' https://github.com/zsh4humans/formulae.git
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/widgets
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/terminal
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/locale
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/keymap
+z4h require git-repo -v '^1.0.0' https://github.com/zsh4humans/command-not-found
+
+z4h require github-release -v '^1.0.0' https://github.com/sharkdp/bat
+
+z4h require bat -v '^1.0.0'
 
 z4h require fzf -v '^1.0.0'
+z4h require zsh-autosuggestions -v '^1.0.0'
+z4h require zsh-syntax-highlighting -v '^1.0.0'
+z4h require oh-my-zsh
+
+z4h require -v '^1.0.0' https://github.com/zsh4humans/formulae
+
 z4h require git -v '^1.0.0' https://github.com/romkatv/powerlevel10k.git
 z4h require git https://github.com/ohmyzsh/ohmyzsh.git
 
 z4h purge
 
----
-
-z4h pull https://github.com/zsh4humans/formulas.git
-z4h source $Z4H_DIR/modules/zsh4humans/formulas/formulas.zsh
-
-# how to avoid issues when you update and pick up a more specific formula that breaks you because
-# you relied on the non-specific one?
-
-z4h pull https://github.com/junegunn/fzf.git
-z4h pull https://github.com/zsh4humans/cd.git
-
-z4h purge  # delete modules not listed in pull (after instant prompt)
+autoload -Uz z4h-terminal-init z4h-locale-init z4h-keymap-init
+z4h-terminal-init
+z4h-command-not-found-init
+z4h-locale-init
+z4h-keymap-init
 
 z4h reset  # can be called manually to wipe $Z4H_DIR
 
   exec -- $Z4H_ZSH -c "command rm -rf -- ${(q)Z4H_DIR}; exec -- ${(q)Z4H_ZSH}"
-
-----
-
-autoload -Uz bashcompinit && bashcompinit
