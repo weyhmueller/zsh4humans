@@ -5,9 +5,9 @@ fi
 
 emulate zsh
 
-: ${Z4H_ZSH:=${${0#-}:-zsh}}                          # command to start zsh (usually `zsh`)
-: ${Z4H_DIR:=${XDG_CACHE_HOME:-~/.cache}/zsh4humans}  # cache directory
-: ${Z4H_UPDATE_DAYS=13}                               # update dependencies this often
+emulate zsh -o posix_argzero -c ': ${Z4H_ZSH:=${${0#-}:-zsh}}' # command to start zsh
+: ${Z4H_DIR:=${XDG_CACHE_HOME:-~/.cache}/zsh4humans}           # cache directory
+: ${Z4H_UPDATE_DAYS=13}                                        # update dependencies this often
 
 function z4h() {
   emulate -L zsh
@@ -121,7 +121,7 @@ function _z4h-set-term-title-preexec() {
 # When no command is running, display the current directory in the terminal title.
 function _z4h-set-term-title-precmd() {
   emulate -L zsh
-  print -rn -- $'\e]0;'${(V%):-'%~'}$'\a' >$TTY
+  print -rn -- $'\e]0;'${(V%):-"%~"}$'\a' >$TTY
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _z4h-set-term-title-preexec
