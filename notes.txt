@@ -29,26 +29,58 @@ z4h-module-uninstall-'*'() {
   zf_rm -rf -- $Z4H_MODULE_DIR
 }
 
+z4h:formula:fzf:name() {
+  z4h:formula:git:name "$@" https://github.com/junegunn/fzf.git
+}
+
+z4h:formula:fzf:install() {
+  z4h:formula:git:install "$@" https://github.com/junegunn/fzf.git || return
+  >&2 $Z4H_MOD_DIR/install --bin                                   || return
+  zf_ln -s -f -- $Z4H_MOD_DIR/bin/fzf $Z4H_DIR/bin/fzf             || return
+}
+
+z4h:formula:fzf:uninstall() {
+  zf_rm -f -- $Z4H_DIR/bin/fzf $Z4H_MOD_DIR/bin/fzf                  || return
+  z4h:formula:git:uninstall "$@" https://github.com/junegunn/fzf.git || return
+}
+
 ####################
 
 emulate zsh
 
-: ${Z4H_ZSH:=${${0#-}:-zsh}}                          # command to start zsh (usually `zsh`)
 : ${Z4H_DIR:=${XDG_CACHE_HOME:-~/.cache}/zsh4humans}  # cache directory
-: ${Z4H_UPDATE_DAYS=13}                               # auto-update this often
 
-if [[ ! -s $Z4H_DIR/zsh4humans/core/init.zsh ]]; then
-  print -ru2 -- ${(%):-"%F{3}z4h%f: installing %Bzsh4humans/core%b"}
-  rm -rf $Z4H_DIR/zsh4humans/core
-  git clone --depth=1 --recurse-submodules --shallow-submodules --jobs=8 \
-    https://github.com/zh4humans/core.git $Z4H_DIR/zsh4humans/core >&2
+zmodload zsh/zutil || return
+
+zstyle :z4h:core        version     '^1.0.0'
+zstyle :z4h:core        update-days 13
+zstyle :z4h:formula:git clone-flags --recurse-submodules --jobs=8 --depth=1 --shallow-submodules
+zstyle :z4h:formula:git fetch-flags --recurse-submodules --jobs=8
+
+if [[ ! -s $Z4H_DIR/bootstrap/bootstrap.zsh ]]; then
+  print -ru2 -- ${(%):-"%F{3}z4h%f: installing %Bzsh4humans/bootstrap%b"}
+  rm -rf -- $Z4H_DIR/bootstrap
+  git clone --depth=1 https://github.com/zh4humans/bootstrap.git $Z4H_DIR/bootstrap >&2
   if (( $? )); then
     print -ru2 -- ${(%):-"%F{3}z4h%f: %F{1}error%f: type %F{2}%Uexec%u zsh%f to retry"}
     return 1
   fi
 fi
 
-source $Z4H_DIR/zsh4humans/core/init.zsh || return
+source $Z4H_DIR/bootstrap/bootstrap.zsh || return
+
+z4h require git -v '^1.0.0' https://github.com/zsh4humans/formulae.git
+z4h source $Z4H_DIR/modules/zsh4humans/formulae/formulae.zsh
+
+z4h require git -v '^1.0.0' https://github.com/zsh4humans/formulae.git
+
+z4h require fzf -v '^1.0.0'
+z4h require git -v '^1.0.0' https://github.com/romkatv/powerlevel10k.git
+z4h require git https://github.com/ohmyzsh/ohmyzsh.git
+
+z4h purge
+
+---
 
 z4h pull https://github.com/zsh4humans/formulas.git
 z4h source $Z4H_DIR/modules/zsh4humans/formulas/formulas.zsh
@@ -67,11 +99,4 @@ z4h reset  # can be called manually to wipe $Z4H_DIR
 
 ----
 
-z4h require git https://github.com/zsh4humans/formulae.git
-fpath+=($Z4H_DIR/modules/zsh4humans/formulae)
-
-z4h require oh-my-zsh plugins/z
-z4h require fzf
-
-z4h install git https://..
-
+autoload -Uz bashcompinit && bashcompinit
