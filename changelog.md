@@ -33,3 +33,33 @@
   ```zsh
   zstyle :z4h:fzf-history fzf-preview no
   ```
+- iTerm2 integration can no longer be enabled by sourcing `~/.iterm2_shell_integration.zsh`.
+  Instead, you need to put this line in `~/.zshrc`:
+  ```zsh
+  zstyle ':z4h:' iterm2-integration 'yes'
+  ```
+- The following bindings have been changed:
+  - <kbd>Ctrl+P</kbd>/<kbd>Up</kbd>: `z4h-up-local-history` => `z4h-up-substring-local`
+  - <kbd>Ctrl+N</kbd>/<kbd>Down</kbd>: `z4h-down-local-history` => `z4h-down-substring-local`
+- The following widgets have been renamed:
+  - `z4h-up-local-history` => `z4h-up-prefix-local`
+  - `z4h-down-local-history` => `z4h-down-prefix-local`
+  - `z4h-up-global-history` => `z4h-up-prefix-global`
+  - `z4h-down-global-history` => `z4h-down-prefix-global`
+- It's now possible to automatically start `tmux` when zsh4humans is initializing.
+  ```zsh
+  zstyle :z4h: start-tmux [arg]...
+  ```
+  Where `[arg]...` is either `integrated` (the default), `no`, `command <cmd> [flag]...`, or
+  `system`. The latter is equivalent to `command tmux -u`.
+- Widgets the perform recursive directory traversal (`z4h-cd-down` and `z4h-fzf-complete`) now
+  use [bfs](https://github.com/tavianator/bfs) instead of `find` if it's installed. You can get
+  the original behavior with the following declaration:
+  ```zsh
+  zstyle ':z4h:(cd-down|fzf-complete)' find-command command find
+  ```
+  You can also use a custom function in place of `command find` if you want to transform command
+  line arguments.
+- `z4h-fzf-history` (<kbd>Ctrl+R</kbd>) now uses `BUFFER` instead of `LBUFFER` for the initial
+  query. This makes a difference only when the widget is invoked when the cursor is not at the very
+  end of the command line.

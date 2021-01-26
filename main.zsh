@@ -21,9 +21,9 @@ fi
   typeset -gr _z4h_exe=${exe:A}
 }
 
-if ! { zmodload zsh/terminfo zsh/zselect && (( $#terminfo )) ||
+if ! { zmodload -s zsh/terminfo zsh/zselect ||
        [[ $ZSH_PATCHLEVEL == zsh-5.8-0-g77d203f && $_z4h_exe == */bin/zsh &&
-          -e ${_z4h_exe:h:h}/share/zsh/5.8/scripts/relocate ]] } 2>/dev/null; then
+          -e ${_z4h_exe:h:h}/share/zsh/5.8/scripts/relocate ]] }; then
   builtin source $Z4H/zsh4humans/sc/exec-zsh-i || return
 fi
 
@@ -60,15 +60,25 @@ export -T MANPATH=${MANPATH:-:} manpath
 export -T INFOPATH=${INFOPATH:-:} infopath
 typeset -gaU cdpath fpath mailpath path manpath infopath
 
-path=($Z4H/fzf/bin $path)
-[[ $commands[zsh] == $_z4h_exe ]] || path=(${_z4h_exe:h} $path)
-manpath=($manpath $Z4H/fzf/man '')
 fpath=(
   ${^${(M)fpath:#*/$ZSH_VERSION/functions}/%$ZSH_VERSION\/functions/site-functions}(FN)
   ${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/share/zsh/site-functions}(FN)
   /usr{/local,}/share/zsh/{site-functions,vendor-completions}(FN)
   $fpath
   $Z4H/zsh4humans/fn)
+
+autoload -Uz -- $Z4H/zsh4humans/fn/(|-|_)z4h[^.]#(:t) || return
+functions -Ms _z4h_err
+
+if [[ $OSTYPE == darwin* ]]; then
+  if [[ ! -e $Z4H/cache/init-darwin-paths ]] || ! source $Z4H/cache/init-darwin-paths; then
+    -z4h-gen-init-darwin-paths && source $Z4H/cache/init-darwin-paths
+  fi
+fi
+
+path+=($Z4H/fzf/bin)
+manpath=($manpath $Z4H/fzf/man '')
+[[ $commands[zsh] == $_z4h_exe ]] || path=(${_z4h_exe:h} $path)
 
 : ${GITSTATUS_CACHE_DIR=$Z4H/cache/gitstatus}
 : ${ZSH=$Z4H/ohmyzsh/ohmyzsh}
@@ -82,18 +92,21 @@ if [[ $OSTYPE == linux* && -z $HOMEBREW_PREFIX ]]; then
     export HOMEBREW_PREFIX=$dir
     export HOMEBREW_CELLAR=$dir/Cellar
     export HOMEBREW_REPOSITORY=$dir/Homebrew
-    path=($dir/bin $dir/sbin $path)
-    manpath=($dir/share/man $manpath '')
-    infopath=($dir/share/info $infopath '')
+    (( ${path[(Ie)$dir/sbin]}           )) || path=($dir/sbin $path)
+    (( ${path[(Ie)$dir/bin]}            )) || path=($dir/bin $path)
+    (( ${manpath[(Ie)$dir/share/man]}   )) || manpath=($dir/share/man $manpath '')
+    (( ${infopath[(Ie)$dir/share/info]} )) || infopath=($dir/share/info $infopath '')
   }
 fi
 
-[[ -z $TERMINFO || -e $TERMINFO ]] || unset TERMINFO
-[[ $TERMINFO != $Z4H/terminfo && -d $Z4H/terminfo ]] && export TERMINFO=$Z4H/terminfo
+() {
+  path=(${@:|path} $path)
+} {~/bin,~/.local/bin,~/.cargo/bin,/usr/local/bin,/snap/bin}(-/N)
 
 if [[ $ZSH_PATCHLEVEL == zsh-5.8-0-g77d203f && $_z4h_exe == */bin/zsh &&
       -e ${_z4h_exe:h:h}/share/zsh/5.8/scripts/relocate ]]; then
-  if [[ $TERMINFO != ($Z4H/terminfo|${_z4h_exe:h:h}/share/terminfo) ]]; then
+  if [[ $TERMINFO != ~/.terminfo && $TERMINFO != ${_z4h_exe:h:h}/share/terminfo &&
+        -e ${_z4h_exe:h:h}/share/terminfo/$TERM[1]/$TERM ]]; then
     export TERMINFO=${_z4h_exe:h:h}/share/terminfo
   fi
   if [[ -e ${_z4h_exe:h:h}/share/man ]]; then
@@ -101,14 +114,15 @@ if [[ $ZSH_PATCHLEVEL == zsh-5.8-0-g77d203f && $_z4h_exe == */bin/zsh &&
   fi
 fi
 
+[[ $terminfo[Tc] == yes && -z $COLORTERM ]] && export COLORTERM=truecolor
+
 if [[ $EUID == 0 && -z ~(#qNU) && $Z4H == ~/* ]]; then
   typeset -gri _z4h_dangerous_root=1
 else
   typeset -gri _z4h_dangerous_root=0
 fi
 
-autoload -Uz -- $Z4H/zsh4humans/fn/(|-|_)z4h[^.]#(:t) || return
-functions -Ms _z4h_err
+[[ $langinfo[CODESET] == (utf|UTF)(-|)8 ]] || -z4h-fix-locale
 
 function compinit() {}
 
@@ -155,15 +169,26 @@ function -z4h-cmd-init() {
   () {
     eval "$_z4h_opt"
 
-    [[ -n $Z4H_SSH || $MACHTYPE != x86_64 || $OSTYPE != (linux|darwin)* ]] ||
-      ! zstyle -T :z4h start-tmux integrated
-    local -i install_tmux=$? need_restart
+    local -a start_tmux
+    # 'integrated', 'system', or 'command' <cmd> [arg]...
+    zstyle -a :z4h: start-tmux start_tmux || start_tmux=(integrated)
+    local -i install_tmux need_restart
+    if (( $#start_tmux == 1 )); then
+      case $start_tmux[1] in
+        integrated) install_tmux=1;;
+        system)     start_tmux=(command tmux -u);;
+      esac
+    fi
 
-    if (( ! $+ZSH_SCRIPT && ! $+ZSH_EXECUTION_STRING )) &&
-       [[ -o zle && -t 0 && -t 1 && -t 2 ]]; then
+    if (( $+ZSH_SCRIPT || $+ZSH_EXECUTION_STRING )) || ! [[ -o zle && -t 0 && -t 1 && -t 2 ]]; then
+      unset _Z4H_TMUX _Z4H_TMUX_CMD
+    else
+      if [[ $USES_VSCODE_SERVER_SPAWN == true && $TERM == xterm-256color ]]; then
+        unset _Z4H_TMUX _Z4H_TMUX_CMD
+      fi
       local tmux=$Z4H/tmux/bin/tmux
       local -a match mbegin mend
-      if [[ -n $TMUX && $TMUX == (#b)(/*),(|<->),(|<->) && -w $match[1] ]]; then
+      if [[ $TMUX == (#b)(/*),(|<->),(|<->) && -w $match[1] ]]; then
         if [[ $TMUX == */z4h-tmux-* ]]; then
           export _Z4H_TMUX=$TMUX
           export _Z4H_TMUX_CMD=$tmux
@@ -177,30 +202,43 @@ function -z4h-cmd-init() {
         else
           unset _Z4H_TMUX _Z4H_TMUX_CMD
         fi
-        if [[ -n $_Z4H_TMUX && -t 1 ]] && zstyle -T :z4h prompt-position bottom; then
+        if [[ -n $_Z4H_TMUX && -t 1 ]] && zstyle -T :z4h: prompt-at-bottom; then
           local cursor_y cursor_x
           -z4h-get-cursor-pos || return
           local -i n=$((LINES - cursor_y))
           print -rn -- ${(pl:$n::\n:)}
         fi
-      elif (( install_tmux )) && [[ ! -w ${_Z4H_TMUX%,(|<->),(|<->)} ]]; then
-        unset _Z4H_TMUX _Z4H_TMUX_CMD
-        if [[ -x $tmux && $TERMINFO == $Z4H/terminfo ]]; then
-          unset TMUX TMUX_PANE
+      elif (( install_tmux )) &&
+           [[ -z $TMUX && ! -w ${_Z4H_TMUX%,(|<->),(|<->)} && -z $Z4H_SSH ]]; then
+        unset _Z4H_TMUX _Z4H_TMUX_CMD TMUX TMUX_PANE
+        if [[ -x $tmux && -d $Z4H/terminfo ]]; then
+          # We prefer /tmp over $TMPDIR because the latter breaks the rendering
+          # of wide chars on iTerm2.
           local sock
           if [[ -n $TMUX_TMPDIR && -d $TMUX_TMPDIR && -w $TMUX_TMPDIR ]]; then
             sock=$TMUX_TMPDIR
-          elif [[ -n $TMPDIR && -d $TMPDIR && -w $TMPDIR ]]; then
-            sock=$TMPDIR
           elif [[ -d /tmp && -w /tmp ]]; then
             sock=/tmp
+          elif [[ -n $TMPDIR && -d $TMPDIR && -w $TMPDIR ]]; then
+            sock=$TMPDIR
           fi
           if [[ -n $sock ]]; then
             sock=${sock%/}/z4h-tmux-$UID-$TERM
-            local cfg=tmux-16color.conf
-            (( terminfo[colors] >= 256 )) && cfg=tmux-256color.conf
-            >&2 SHELL=$_z4h_exe exec $tmux -u -S $sock -f $Z4H/zsh4humans/$cfg || return
+            if (( terminfo[colors] < 256 )); then
+              local cfg=tmux-16color.conf
+            elif [[ $COLORTERM == (24bit|truecolor) ]]; then
+              local cfg=tmux-truecolor.conf
+            else
+              local cfg=tmux-256color.conf
+            fi
+            SHELL=$_z4h_exe exec - $tmux -u -S $sock -f $Z4H/zsh4humans/$cfg || return
           fi
+        else
+          need_restart=1
+        fi
+      elif [[ -z $TMUX && $start_tmux[1] == command ]] && (( $+commands[$start_tmux[2]] )); then
+        if [[ -d $Z4H/terminfo ]]; then
+          SHELL=$_z4h_exe exec - ${start_tmux:1} || return
         else
           need_restart=1
         fi
@@ -212,14 +250,17 @@ function -z4h-cmd-init() {
       _z4h_install_queue+=(systemd)
     fi
     _z4h_install_queue+=(
-      zsh-autosuggestions zsh-completions zsh-syntax-highlighting terminfo fzf powerlevel10k)
+      zsh-history-substring-search zsh-autosuggestions zsh-completions
+      zsh-syntax-highlighting terminfo fzf powerlevel10k)
     (( install_tmux )) && _z4h_install_queue+=(tmux)
     if ! -z4h-install-many; then
       [[ -e $Z4H/.updating ]] || -z4h-error-command init
       return 1
     fi
     if (( _z4h_installed_something )); then
-      export TERMINFO=$Z4H/share/terminfo
+      if [[ $TERMINFO != ~/.terminfo && -e ~/.terminfo/$TERM[1]/$TERM ]]; then
+        export TERMINFO=~/.terminfo
+      fi
       if (( need_restart )); then
         print -ru2 ${(%):-"%F{3}z4h%f: restarting %F{2}zsh%f"}
         exec -- $_z4h_exe -i || return
@@ -230,9 +271,9 @@ function -z4h-cmd-init() {
     fi
 
     if [[ -w $TTY && (-n $Z4H_SSH && -n $_Z4H_SSH_MARKER || -n $_Z4H_TMUX) ]]; then
-      typeset -gri _z4h_can_save_restore_screen=1
+      typeset -gri _z4h_can_save_restore_screen=1  # this parameter is read by p10k
     else
-      typeset -gri _z4h_can_save_restore_screen=0
+      typeset -gri _z4h_can_save_restore_screen=0  # this parameter is read by p10k
     fi
   } || return
 
@@ -287,7 +328,7 @@ function z4h() {
 
 typeset -gr _z4h_orig_shell=${SHELL-}
 
-(( !EUID || $+Z4H_SSH ))                                                                 ||
+(( _z4h_dangerous_root || $+Z4H_SSH ))                                                   ||
   ! zstyle -T :z4h: chsh                                                                 ||
   [[ ${SHELL-} == $_z4h_exe || ${SHELL-} -ef $_z4h_exe || -e $Z4H/stickycache/no-chsh ]] ||
   -z4h-chsh                                                                              ||

@@ -618,6 +618,9 @@ PATH="$(command -p getconf PATH):$PATH"
 
 This can be broken only by function `unset`.
 
+There is a similar but different example at
+https://pubs.opengroup.org/onlinepubs/9699919799/utilities/env.html.
+
 ---
 
 Add `z4h pack` that produces `install-z4h` file. It should be similar to the bootstrap script
@@ -784,3 +787,198 @@ https://github.com/romkatv/zsh4humans/issues/35#issuecomment-719639084 are here:
 See if it's feasible to fix
 https://github.com/romkatv/powerlevel10k#horrific-mess-when-resizing-terminal-window by patching
 tmux.
+
+---
+
+`kitty @ launch cat` doesn't work. See
+https://github.com/romkatv/zsh4humans/issues/35#issuecomment-720134760.
+
+---
+
+`new_os_window_with_cwd` doesn't work in Kitty. See
+https://github.com/romkatv/zsh4humans/issues/35#issuecomment-720134760.
+
+---
+
+Make `z4h ssh` work when the target machine doesn't have internet.
+
+Implement `z4h fetch` that on a local machine would be a wrapper around `curl`/`wget` and on a
+remote machine would send a request via the marker to the local. Local machine would fetch the
+file (via `z4h fetch`, naturally) and upload it via `ssh host 'cat >$dst.$$ && mv $dst.$$ $dst`.
+The file should have error code, stderr and finally the file.
+
+There is `curl` in `~/.zshenv`. In order to deal with that, add one more condition to `~/.zshenv`:
+
+```zsh
+if command -v z4h >/dev/null 2>&1; then
+  z4h fetch "$Z4H_URL"/z4h.zsh >"$Z4H"/z4h.zsh.$$
+elif ...
+fi
+```
+
+`z4h` will be a function that can handle nothing but this command.
+
+`z4h fetch` should have a whitelist of URLs it can handle (for security).
+
+---
+
+Implement `z4h clipboard-{cut,copy,paste}` that can work over ssh. Add this to `.zshrc`:
+
+```zsh
+# Should clipboard-related z4h commands on the local host use
+# the OS clipboard ('system') or a file ('file')?
+zstyle :z4h: clipboard system
+
+# Allow remote hosts access to the clipboard of the client? If set to 'no',
+# clipboard-related z4h functions on the remote host will use a file.
+zstyle ':z4h:ssh:*' client-clipboard no
+
+# Copy the current command line to clipboard.
+z4h bindkey z4h-copy-bufer-to-clipboard Ctrl+X
+
+alias x='z4h clipboard-copy'   # write stdin to clipboard
+alias c='z4h clipboard-copy'   # write stdin to clipboard and to stdout
+alias v='z4h clipboard-paste'  # write clipboard to stdout
+```
+
+---
+
+Add `z4h {slurp,barf}` similar to `z4h clipboard-{cut,copy,paste}`.
+
+---
+
+Make <kbd>Ctrl+R</kbd> display the preview right on the command line. Before opening it, set
+`BUFFER` to `$'..\n\n\n'` so that it scrolls a bit.
+
+---
+
+Set `TERM=screen-256color` by default. Make it easy to override it per-app and the default as well.
+
+```zsh
+zstyle :z4h:terminfo:     term screen-256color
+zstyle :z4h:terminfo:ssh  term screen-256color
+zstyle :z4h:terminfo:sudo term screen-256color
+```
+
+These styles should be consulted only when using tmux with 256 colors.
+
+Hm, those styles won't work because we need to define functions for all apps (`ssh`, `sudo`, etc.).
+This, then?
+
+```zsh
+zstyle :z4h:tmux term                  screen-256color
+zstyle :z4h:tmux force-screen-256color ssh sudo
+zstyle :z4h:tmux force-tmux-256color   kak vi
+```
+
+Or maybe hook `TRAPDEBUG` and use the first syntax?
+
+Or do it like this:
+
+```zsh
+zstyle :z4h: term-spec {ssh,sudo,docker}:{tmux-256color:screen-256color,alacritty:xterm-256color}
+```
+
+This isn't good. Figure out how to make it possible to add commands without wiping the default ones.
+
+---
+
+Profile tmux when printing a ton of data to the terminal and see if there is an easy way to speed
+it up (likely not).
+
+---
+
+`$TTY` is not writable when doing something like this:
+
+```zsh
+% sudo useradd -ms =zsh test
+% sudo -iu test
+% [[ -w $TTY ]] || echo 'not writable'
+```
+
+This breaks a bunch of things. For example, <kbd>Tab</kbd> doesn't work. To fix this, `dup` one of
+the standard file descriptors into `_z4h_tty_fd` on startup and use it through the code instead of
+`$TTY`.
+
+---
+
+Change the way <kbd>Up</kbd>/<kbd>Down</kbd> work with multi-line commands. Pressing <kbd>Up</kbd>
+twice should always have the effect of fetching from history twice, whether the command line was
+empty or not to begin with.
+
+---
+
+Consider changing <kbd>Up</kbd>/<kbd>Down</kbd> so that it searches for individual words. There
+is `HISTORY_SUBSTRING_SEARCH_FUZZY=1` for it.
+
+---
+
+Add a banner to `~/.zshrc` that requires confirmation. Add the same banner to `install`. When
+the user consents during the installation, remove the banner from `~/.zshrc`.
+
+The banner should say that this is bleeding edge, blah, blah.
+
+---
+
+Do not install zsh-bin if the only thing missing from the stock is terminfo. Also remove the
+requirement for `zsh/pcre`. Better yet, add a `zstyle` for required modules.
+
+The goal here is to avoid installing zsh-bin when using macOS Big Sur or having zsh from brew.
+
+---
+
+Make zsh-bin work like `tmux -u`. That is, assume UTF-8 always. If there is no UTF-8 locale on the
+machine (or maybe if the current locale is not UTF-8) require zsh-bin.
+
+---
+
+Make integrated tmux work with `TERM=xterm-256color`.
+
+---
+
+Remove client-server architecture from the integrated tmux. Would be nice to put it in the same
+process as zsh but it might make it more difficult to update tmux. For starters it's probably a good
+idea to have zsh in one process and everything else in another (`z4hd`).
+
+Actually, maybe this is a bad idea. Maybe it's better to run `z4hd` the way `tmux` currently runs.
+Just add `version` to the socket name. The latter can be done right now, without any architectural
+changes.
+
+---
+
+Add a special escape code to the integrated tmux that would allow identifying via a roundtrip to
+the TTY. Since other terminals won't reply, the logic should be like this:
+
+1. Write "are you integrated tmux".
+2. Write "where is cursor".
+3. Read the cursor positions. If a special response preceeds it, this is integrated tmux.
+
+---
+
+Add `z4h [-r] output` that prints the output of the last command. With `-r` the output is printed
+without styling (no colors, etc.). Print a warning if the output has more than `N` bytes (or
+terminal lines?). `N` should be configurable.
+
+Implement this by printing a marker in preexec and another in precmd.
+
+---
+
+Complain if users override `TERM` when using integrated tmux.
+
+---
+
+Figure out better key bindings for macOS.
+
+---
+
+If using iTerm2 with the default color scheme, change it to Tango Dark with dark-grey for black.
+Do it in `p10k configure` for now.
+
+---
+
+`z4h ssh` should backup remote files to `~/zsh-backup/ssh`. Each file/directory just once. When
+backing up, write a message to the tty saying so. Have a `zstyle` to control this.
+
+---
+
+List `~/.tmux.conf` in `~/.zshrc` among the files to send over ssh.

@@ -1,3 +1,11 @@
+if zstyle -t :z4h: iterm2-integration &&
+   [[ $TERM != (dumb|linux) && $ITERM_SHELL_INTEGRATION_INSTALLED != Yes ]]; then
+  -z4h-enable-iterm2-integration
+else
+  function -z4h-iterm2-precmd() { }
+  function -z4h-iterm2-preexec() { }
+fi
+
 # When a command is running, display it in the terminal title.
 function -z4h-set-term-title-preexec() {
   emulate -L zsh
@@ -7,11 +15,13 @@ function -z4h-set-term-title-preexec() {
   else
     zstyle -s :z4h:term-title:local preexec _z4h_fmt || _z4h_fmt='${1//\%/%%}'
   fi
+  -z4h-iterm2-preexec
   [[ -z $_z4h_fmt ]] || -z4h-set-term-title $_z4h_fmt "$@"
 }
 
 # When no command is running, display the current directory in the terminal title.
 function -z4h-set-term-title-precmd() {
+  local -i err=$?
   emulate -L zsh
   local _z4h_fmt
   if [[ -n $SSH_CONNECTON || $P9K_SSH == 1 ]]; then
@@ -19,6 +29,7 @@ function -z4h-set-term-title-precmd() {
   else
     zstyle -s :z4h:term-title:local precmd _z4h_fmt || _z4h_fmt='%~'
   fi
+  -z4h-iterm2-precmd $err
   [[ -z $_z4h_fmt ]] || -z4h-set-term-title $_z4h_fmt
 }
 
@@ -28,26 +39,19 @@ add-zsh-hook -- precmd -z4h-set-term-title-precmd   || return
 
 local pkg
 typeset -gA _z4h_use
-for pkg in fzf powerlevel10k systemd \
+for pkg in fzf powerlevel10k systemd zsh-history-substring-search \
            zsh-completions zsh-autosuggestions zsh-syntax-highlighting; do
   zstyle -t :z4h:$pkg channel none || _z4h_use[$pkg]=1
 done
 typeset -grA _z4h_use
 
-local p10k_cfg=
-# If the current locale isn't UTF-8, change it to an UTF-8 one.
-# Try in order: C.UTF-8, en_US.UTF-8, the first UTF-8 locale in lexicographical order.
-() {
-  [[ $langinfo[CODESET] == (utf|UTF)(-|)8 ]] && return 0
-  (( $+commands[locale] )) || return
-  local loc=(${(@M)$(locale -a):#*.(utf|UTF)(-|)8})
-  (( $#loc )) || return
-  export LC_ALL=${loc[(r)(#i)C.UTF(-|)8]:-${loc[(r)(#i)en_US.UTF(-|)8]:-$loc[1]}}
-} && [[ $TERM != (dumb|linux) ]] || p10k_cfg+=-ascii
-(( terminfo[colors] >= 256 )) || p10k_cfg+=-8color
-
-if (( _z4h_use[powerlevel10k] )); then
-  : ${POWERLEVEL9K_CONFIG_FILE:=$ZDOTDIR/.p10k${p10k_cfg}.zsh}
+if (( _z4h_use[powerlevel10k] && ! $#POWERLEVEL9K_CONFIG_FILE )) ; then
+  POWERLEVEL9K_CONFIG_FILE=$ZDOTDIR/.p10k
+  if [[ $langinfo[CODESET] != (utf|UTF)(-|)8 || $TERM == (dumb|linux) ]]; then
+    POWERLEVEL9K_CONFIG_FILE+=-ascii
+  fi
+  (( terminfo[colors] >= 256 )) || POWERLEVEL9K_CONFIG_FILE+=-8color
+  POWERLEVEL9K_CONFIG_FILE+=.zsh
 fi
 
 # Enable command_not_found_handler if possible.
@@ -69,18 +73,33 @@ elif (( $+commands[brew] )); then
   -z4h-brew-command-not-found
 fi
 
-function z4h-up-local-history() {
+function z4h-up-prefix-local() {
   -z4h-with-local-history 1 up-line-or-beginning-search "$@"
 }
-function z4h-down-local-history() {
+function z4h-down-prefix-local() {
   -z4h-with-local-history 1 down-line-or-beginning-search "$@"
 }
-function z4h-up-global-history() {
+function z4h-up-prefix-global() {
   -z4h-with-local-history 0 up-line-or-beginning-search "$@"
 }
-function z4h-down-global-history() {
+function z4h-down-prefix-global() {
   -z4h-with-local-history 0 down-line-or-beginning-search "$@"
 }
+
+if (( _z4h_use[zsh-history-substring-search] )); then
+  function z4h-up-substring-local() {
+    -z4h-with-local-history 1 history-substring-search-up "$@"
+  }
+  function z4h-down-substring-local() {
+    -z4h-with-local-history 1 history-substring-search-down "$@"
+  }
+  function z4h-up-substring-global() {
+    -z4h-with-local-history 0 history-substring-search-up "$@"
+  }
+  function z4h-down-substring-global() {
+    -z4h-with-local-history 0 history-substring-search-down "$@"
+  }
+fi
 
 function z4h-kill-word()           { -z4h-move-and-kill z4h-forward-word   }
 function z4h-backward-kill-word()  { -z4h-move-and-kill z4h-backward-word  }
@@ -99,7 +118,7 @@ function z4h-expand() { zle _expand_alias || zle .expand-word || true }
 
 function z4h-cd-back() { -z4h-cd-rotate +1 }
 function z4h-cd-forward() { -z4h-cd-rotate -0 }
-function z4h-cd-up() { cd .. && -z4h-redraw-prompt }
+function z4h-cd-up() { builtin cd -q .. && -z4h-redraw-prompt }
 
 function z4h-do-nothing() {}
 
@@ -130,10 +149,16 @@ zle -N z4h-beginning-of-buffer
 zle -N z4h-end-of-buffer
 zle -N z4h-stash-buffer
 zle -N z4h-fzf-complete
-zle -N z4h-up-local-history
-zle -N z4h-down-local-history
-zle -N z4h-up-global-history
-zle -N z4h-down-global-history
+zle -N z4h-up-prefix-local
+zle -N z4h-down-prefix-local
+zle -N z4h-up-prefix-global
+zle -N z4h-down-prefix-global
+if (( _z4h_use[zsh-history-substring-search] )); then
+  zle -N z4h-up-substring-local
+  zle -N z4h-down-substring-local
+  zle -N z4h-up-substring-global
+  zle -N z4h-down-substring-global
+fi
 zle -N z4h-cd-back
 zle -N z4h-cd-forward
 zle -N z4h-cd-up
@@ -253,16 +278,26 @@ done
 bindkey   '^[[D'    backward-char                  # left
 # Move cursor one char forward.
 bindkey   '^[[C'    forward-char                   # right
-# Move cursor one line up or fetch the previous command from LOCAL history.
-bindkey   '^P'      z4h-up-local-history           # ctrl+p
-bindkey   '^[[A'    z4h-up-local-history           # up
-# Move cursor one line down or fetch the next command from LOCAL history.
-bindkey   '^N'      z4h-down-local-history         # ctrl+n
-bindkey   '^[[B'    z4h-down-local-history         # down
+if (( _z4h_use[zsh-history-substring-search] )); then
+  # Move cursor one line up or fetch the previous command from LOCAL history.
+  bindkey '^P'      z4h-up-substring-local         # ctrl+p
+  bindkey '^[[A'    z4h-up-substring-local         # up
+  # Move cursor one line down or fetch the next command from LOCAL history.
+  bindkey   '^N'    z4h-down-substring-local       # ctrl+n
+  bindkey   '^[[B'  z4h-down-substring-local       # down
+else
+  # Move cursor one line up or fetch the previous command from LOCAL history.
+  bindkey '^P'      z4h-up-prefix-local            # ctrl+p
+  bindkey '^[[A'    z4h-up-prefix-local            # up
+  # Move cursor one line down or fetch the next command from LOCAL history.
+  bindkey   '^N'    z4h-down-prefix-local          # ctrl+n
+  bindkey   '^[[B'  z4h-down-prefix-local          # down
+fi
+
 # Move cursor one line up or fetch the previous command from GLOBAL history.
-bindkey   '^[[1;5A' z4h-up-global-history          # ctrl+up
+bindkey   '^[[1;5A' z4h-up-prefix-global           # ctrl+up
 # Move cursor one line down or fetch the next command from GLOBAL history.
-bindkey   '^[[1;5B' z4h-down-global-history        # ctrl+down
+bindkey   '^[[1;5B' z4h-down-prefix-global         # ctrl+down
 # Move cursor to the beginning of line.
 bindkey   '^[[H'    beginning-of-line              # home
 # Move cursor to the end of line.
@@ -344,7 +379,7 @@ if (( _z4h_use[fzf] )); then
   # cd into a subdirectory (interactive).
   bindkey '^[[1;2B' z4h-cd-down                    # shift+down
 fi
-if zstyle -T :z4h prompt-position bottom; then
+if zstyle -T :z4h: prompt-at-bottom; then
   bindkey '^L' z4h-clear-screen-soft-bottom
   bindkey '^[^L' z4h-clear-screen-hard-bottom
 else
@@ -682,11 +717,13 @@ if (( _z4h_use[powerlevel10k] )); then
     builtin source $Z4H/powerlevel10k/powerlevel10k.zsh-theme
   }
   z4h source -c $POWERLEVEL9K_CONFIG_FILE
-  -z4h-set-term-title-precmd || return
 fi
 
-local dirs=({~/bin,~/.local/bin,~/.cargo/bin,/usr/local/bin,/snap/bin}(-/N))
-path=(${dirs:|path} $path)
+if (( $+_z4h_iterm_cmd )); then
+  -z4h-iterm2-dump
+  -z4h-tmux-bypass '\e]1337;ShellIntegrationVersion=12;shell=zsh\a'
+fi
+-z4h-set-term-title-precmd || return
 
 if (( _z4h_use[zsh-autosuggestions] )); then
   if (( terminfo[colors] >= 256 )); then
@@ -702,12 +739,20 @@ if (( _z4h_use[zsh-autosuggestions] )); then
   # Tell zsh-autosuggestions how to handle different widgets.
   typeset -g ZSH_AUTOSUGGEST_EXECUTE_WIDGETS=()
   typeset -g ZSH_AUTOSUGGEST_CLEAR_WIDGETS=(
-    z4h-down-global-history
-    z4h-down-local-history
     z4h-fzf-history
-    z4h-up-global-history
-    z4h-up-local-history
+    z4h-down-prefix-global
+    z4h-down-prefix-local
+    z4h-up-prefix-global
+    z4h-up-prefix-local
   )
+  if (( _z4h_use[zsh-history-substring-search] )); then
+    ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(
+      z4h-down-substring-global
+      z4h-down-substring-local
+      z4h-up-substring-global
+      z4h-up-substring-local
+    )
+  fi
   typeset -g ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(
     emacs-forward-word
     forward-word
@@ -747,6 +792,10 @@ if (( _z4h_use[zsh-syntax-highlighting] )); then
   ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets)  # main syntax highlighting plus matching brackets
   # Work around bugs in history-substring-search: https://github.com/romkatv/zsh4humans/issues/58.
   function _zsh_highlight() {}
+fi
+
+if (( _z4h_use[zsh-history-substring-search] )); then
+  builtin source $Z4H/zsh-history-substring-search/zsh-history-substring-search.zsh
 fi
 
 if (( _z4h_use[zsh-syntax-highlighting] && _z4h_use[zsh-autosuggestions] )); then
@@ -956,6 +1005,10 @@ function -z4h-post-init() {
     complete -o nospace -C =vault vault
   fi
 
+  if (( $+commands[aws_completer] && ! $+_comps[aws] )); then
+    complete -C =aws_completer aws
+  fi
+
   if (( _z4h_use[zsh-syntax-highlighting] && _z4h_use[zsh-autosuggestions] )); then
     () {
       local -hA widgets=(
@@ -963,16 +1016,20 @@ function -z4h-post-init() {
         zle-isearch-update user:_zsh_highlight_widget_zle-isearch-update
       )
       builtin source $Z4H/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-      preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
-      eval '_zsh_highlight() {
+    }
+    preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
+    eval '_zsh_highlight() {
+      {
         if [[ ${#BUFFER} -gt ${ZSH_HIGHLIGHT_MAXLENGTH:-${#BUFFER}} ]]; then
           region_highlight=()
-          return
+        else
+          local -ih PENDING=0 KEYS_QUEUED_COUNT=0
+          '$functions[_zsh_highlight]'
         fi
-        local -ih PENDING=0 KEYS_QUEUED_COUNT=0
-        '$functions[_zsh_highlight]'
-      }'
-    }
+      } always {
+        [[ $WIDGET == zle-line-finish ]] || region_highlight+=($_z4h_substring_search_highlight)
+      }
+    }'
     local suggest_special=(
       $ZSH_AUTOSUGGEST_EXECUTE_WIDGETS
       $ZSH_AUTOSUGGEST_CLEAR_WIDGETS
@@ -981,12 +1038,44 @@ function -z4h-post-init() {
     typeset -g ZSH_AUTOSUGGEST_IGNORE_WIDGETS=(${${(k)widgets}:|suggest_special})
     unset ZSH_AUTOSUGGEST_USE_ASYNC
     _zsh_autosuggest_start
-    if (( $+functions[_history-substring-search-end] )); then
+    if (( _z4h_use[zsh-history-substring-search] )); then
+      function _history-substring-search-end() {
+        builtin eval "$_z4h_opt"
+        if (( _history_substring_search_refresh_display )); then
+          CURSOR=${#BUFFER}
+        fi
+        typeset -g _history_substring_search_result=$BUFFER
+        typeset -gi _history_substring_search_cursor=CURSOR
+        unset _z4h_substring_search_highlight
+        [[ -z $_history_substring_search_query_highlight ]] && return
+        local query_part escaped_query_part REPLY
+        local -i highlight_start_index highlight_end_index query_part_match_index
+        for query_part in $_history_substring_search_query_parts; do
+          escaped_query_part=${query_part//(#m)[\][()|\\*?#<>~^]/\\$MATCH}
+          query_part_match_index=${${BUFFER:$highlight_start_index}[(i)(#$HISTORY_SUBSTRING_SEARCH_GLOBBING_FLAGS)${escaped_query_part}]}
+          (( query_part_match_index > $#BUFFER - highlight_start_index )) && continue
+          highlight_start_index=$(( highlight_start_index + query_part_match_index ))
+          highlight_end_index=$(( highlight_start_index + ${#query_part} ))
+          _z4h_substring_search_highlight+=(
+              "$((highlight_start_index - 1)) $((highlight_end_index - 1)) $_history_substring_search_query_highlight")
+        done
+      }
+    elif (( $+functions[_history-substring-search-end] )); then
       # Turn off highlighting in _history-substring-search-end. It doesn't work anyway.
-      _history-substring-search-end() { _history_substring_search_result=$BUFFER }
+      function _history-substring-search-end() {
+        emulate -L zsh
+        _history_substring_search_result=$BUFFER
+        if (( _history_substring_search_refresh_display )); then
+          CURSOR=${#BUFFER}
+        fi
+      }
     fi
   elif (( _z4h_use[zsh-syntax-highlighting] )); then
     builtin source $Z4H/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+  fi
+
+  if (( ! $+_z4h_iterm_cmd )) && [[ $ITERM_SHELL_INTEGRATION_INSTALLED == Yes ]]; then
+    -z4h-error-iterm2-integration
   fi
 }
 
@@ -995,7 +1084,13 @@ precmd_functions=(-z4h-post-init $precmd_functions)
 
 [[ $OSTYPE == linux-* && -r /proc/version ]] && -z4h-init-wsl
 
-function ssh() { z4h ssh "$@" }
+typeset -g iterm2_hostname=${(%):-%m}
+
+function ssh()  { z4h ssh  "$@" }
+function sudo() { z4h sudo "$@" }
+
+compdef _ssh  ssh
+compdef _sudo sudo
 
 if [[ ! -e $Z4H/z4h.zsh.zwc ]]; then
   z4h compile -- $Z4H/zsh4humans/{main.zsh,sc/exec-zsh-i,fn/(|-|_)z4h[^.]#~*.zwc} $Z4H/z4h.zsh
