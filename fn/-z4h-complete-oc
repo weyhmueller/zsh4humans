@@ -1,16 +1,16 @@
 #!/usr/bin/env zsh
 
-local kubectl="${commands[kubectl]-}"
-local orig_cmd="${_comps[kubectl]-}"
-local comp="$Z4H"/cache/kubectl-completion-$EUID.zsh
+local oc="${commands[oc]-}"
+local orig_cmd="${_comps[oc]-}"
+local comp="$Z4H"/cache/oc-completion-$EUID.zsh
 local cmd
 
 () {
-  [[ -n "$kubectl" ]] || return
+  [[ -n "$oc" ]] || return
 
-  [[ "$comp" -nt "$kubectl" ]] || {
+  [[ "$comp" -nt "$oc" ]] || {
     local tmp="$comp".tmp."${sysparams[pid]}"
-    "$kubectl" completion zsh >"$tmp" || return
+    "$oc" completion zsh >"$tmp" || return
     zf_mv -f -- "$tmp" "$comp" || return
     -z4h-compile "$comp" || return
   }
@@ -30,10 +30,10 @@ local cmd
     unset LWORD RWORD
   } || true
 
-  cmd="${_comps[kubectl]-}"
+  cmd="${_comps[oc]-}"
   [[ "$cmd" != "$orig_cmd" ]] || return
 } || {
-  builtin unset '_comps[kubectl]'
+  builtin unset '_comps[oc]'
   _default "$@"
   return
 }
